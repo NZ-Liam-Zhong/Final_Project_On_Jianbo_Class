@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Jupyter
+.ipynb_checkpoints/
+*.nbconvert.ipynb
+
+# Virtual envs
+.env
+.venv
+venv/
+ENV/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build
+/dist/
+/build/
+
+# Data & logs
+logs/
+*.log
+
+# Torch/Lightning
+lightning_logs/**/events.out.tfevents.*
+lightning_logs/**/checkpoints/*.ckpt
+
+# Large artifacts (consider LFS)
+*.pth
+*.npz
+*.ckpt
+*.tfevents
+
+# Misc
+*.pdf.pdf
