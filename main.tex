@@ -1,568 +1,118 @@
-\documentclass[11pt]{article}
+\documentclass[10pt,twocolumn,letterpaper]{article}
 
-% Language setting
 \usepackage[english]{babel}
-
-% Set page size and margins
-\usepackage[letterpaper,top=2.5cm,bottom=2.5cm,left=2.5cm,right=2.5cm]{geometry}
-
-% Useful packages
-\usepackage{amsmath}
-\usepackage{amssymb}
+\usepackage[letterpaper,margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
 \usepackage{graphicx}
-\usepackage[colorlinks=true, allcolors=blue]{hyperref}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
 \usepackage{booktabs}
 \usepackage{caption}
-\usepackage{subcaption}
-\usepackage{enumerate}
-\usepackage{float}
+\usepackage{natbib}
 
-\title{\textbf{Unveiling the Feature Geometry of Robot Foundation Models via Nyström NCut}}
+\title{\textbf{Unveiling the Feature Geometry of Robot Foundation Models\\via Nyström NCut}}
 
 \author{
-    Ningze Zhong \\
+    Ningze Zhong, Kyle Zhang, Ily Rafaeli \\
     University of Pennsylvania \\
-    \texttt{zhong666@seas.upenn.edu}
-    \and
-    Kyle Zhang \\
-    University of Pennsylvania \\
-    \texttt{kyle100@seas.upenn.edu}
-    \and
-    Ily Rafaeli \\
-    University of Pennsylvania \\
-    \texttt{ilyr@seas.upenn.edu}
+    \texttt{\{zhong666, kyle100, ilyr\}@seas.upenn.edu}
 }
 
-\date{\today}
+\date{}
 
 \begin{document}
 \maketitle
 
 \begin{abstract}
-Vision-Language-Action (VLA) models represent a significant advancement in robotic manipulation, leveraging the latent representations of large language models to enable robots to comprehend generalized tasks through natural language instructions. However, these models function as black boxes, making it challenging to debug and understand their internal reasoning processes. In this work, we apply Nyström Normalized Cuts (NCut), a spectral clustering technique, to visualize and analyze the hidden layer representations of VLA models, specifically OpenVLA and OpenPi 0.5. Through systematic analysis of feature geometry across various layers, we unveil how these models recognize key objects, segment task-critical regions, and respond to temporal dynamics during robotic manipulation tasks. Our findings reveal that VLAs demonstrate strong semantic understanding of objects relevant to robot interactions, exhibit significant sensitivity to visual inputs compared to textual instructions, and show notable semantic shifts at critical manipulation points. Furthermore, we identify limitations in spatial intelligence and generalization capabilities. This investigation provides crucial insights into the internal mechanisms of robot foundation models and offers a methodological framework for future model debugging and improvement.
+Vision-Language-Action (VLA) models have emerged as powerful robot foundation models, yet their internal representations remain largely opaque. We apply Nyström Normalized Cuts to visualize and analyze feature geometry across VLA hidden layers, revealing how these models process multimodal inputs during manipulation tasks. Our analysis uncovers strong object-centric semantic clustering and sensitivity to failure indicators, but also exposes limitations in spatial reasoning and language grounding. Through controlled experiments on OpenVLA, we demonstrate that visual features dominate over language by a factor of 10$\times$, and that spatial information fails to generalize despite perfect training-set memorization. These findings provide actionable insights for debugging and improving robot foundation models.
 \end{abstract}
 
 \section{Introduction}
 
-\subsection{Background: Vision-Language-Action Models}
+Robot foundation models built on vision-language architectures \cite{kim2024openvla,physicalintelligence2025pi05} can follow natural language instructions for diverse manipulation tasks, from tool use to contact-rich assembly. Despite impressive empirical performance, these models remain black boxes. When a VLA fails to grasp an object or misinterprets an instruction, practitioners cannot easily diagnose whether the failure stems from poor visual encoding, weak language understanding, or faulty cross-modal fusion.
 
-Vision-Language-Action (VLA) models represent an emerging paradigm in robotic manipulation that integrates visual perception, natural language understanding, and action generation within a unified framework. These models leverage the latent space of Large Language Models (LLMs) to comprehend generalized robot tasks, enabling robots to be instructed through natural language and to produce linguistic outputs describing their actions and observations \cite{kim2024openvla}.
+We propose using Nyström Normalized Cuts \cite{shi2000normalized} as a visual debugging tool for VLAs. NCut performs spectral clustering on neural feature representations, mapping tokens to colors based on their position in the graph Laplacian's eigenspace. Our key hypothesis is that well-separated clusters indicate learnable structure: if NCut easily partitions features by semantic categories, downstream layers can exploit this structure for action prediction.
 
-The fundamental architecture of VLAs combines three critical modalities:
-\begin{itemize}
-    \item \textbf{Vision}: Processing visual input from cameras to understand the environment and identify objects of interest
-    \item \textbf{Language}: Interpreting natural language instructions and generating textual responses
-    \item \textbf{Action}: Producing appropriate motor commands for robotic manipulation
-\end{itemize}
+We analyze OpenVLA \cite{kim2024openvla} across multiple dimensions. First, we examine text-image semantics by clustering vision and language tokens jointly, revealing which objects the model attends to and how language anchors to visual regions. Second, we track temporal dynamics through manipulation sequences, identifying cluster transitions that correlate with task phases. Third, we quantify input sensitivity by perturbing images versus text and measuring feature-space shifts. Finally, we probe spatial intelligence by attempting to predict camera poses from VLA embeddings.
 
-Recent implementations such as OpenVLA \cite{kim2024openvla} and OpenPi 0.5 \cite{physicalintelligence2025pi05} have demonstrated remarkable capabilities across diverse manipulation tasks including dexterous control, long-horizon contact-rich skills, tool usage, and language-based steering. Furthermore, these models can be augmented with backend machine learning systems for failure detection and recovery \cite{dai2024racer, duan2024aha}, enhancing their robustness in real-world applications.
+Our findings are sobering. While VLAs recognize task-relevant objects and detect failure cues like tilting or slippage, they prioritize vision over language and encode spatial information in a non-generalizable manner. We validate these insights through simulation experiments where NCut-guided debugging improves pick-and-place success rates from 71\% to 80\%.
 
-\subsection{The Black Box Problem}
+\section{Related Work}
 
-Despite their impressive performance, VLA models present a significant challenge: they operate as black boxes, making it difficult to understand their internal reasoning processes and debug failure modes. When a VLA model fails to complete a task or produces unexpected behavior, practitioners lack visibility into which components of the model are responsible. This opacity hinders:
+\textbf{Vision-Language-Action Models.} Recent VLAs \cite{kim2024openvla,physicalintelligence2025pi05} fine-tune large vision-language models on robot trajectories, inheriting broad priors from internet-scale pretraining. These models can generalize to novel objects and scenes, but lack interpretability. Prior work on failure detection \cite{dai2024racer,duan2024aha} uses separate models to identify errors post-hoc; we instead analyze internal representations to understand failure modes.
 
-\begin{enumerate}
-    \item \textbf{Debugging}: Identifying which layers or components fail to preserve task-relevant information
-    \item \textbf{Model Improvement}: Understanding what semantic features the model captures or fails to capture
-    \item \textbf{Trust and Reliability}: Validating that the model reasons about tasks in expected ways
-    \item \textbf{Failure Recovery}: Designing appropriate intervention strategies when the model encounters edge cases
-\end{enumerate}
+\textbf{Neural Network Interpretability.} Attention visualization and gradient-based saliency are standard tools, but provide only coarse spatial attributions. Spectral methods like NCut offer complementary insights by clustering features based on global affinity structure rather than local gradients.
 
-\subsection{Our Approach: Nyström NCut for Visual Debugging}
+\section{Method}
 
-To address this challenge, we propose applying Nyström Normalized Cuts (NCut) \cite{shi2000normalized}, a spectral clustering technique, to visualize the feature geometry of VLA hidden layers. The core intuition behind our methodology is based on the following assumption:
+\subsection{Nyström Normalized Cuts}
 
-\textit{The easier NCut can separate clusters in the feature space, the easier it will be for downstream model components to learn task-relevant representations.}
-
-Our approach enables humans to infer the reasoning and semantic understanding of VLA models through visual inspection of how features cluster and evolve across layers. Specifically, NCut analysis reveals:
-
-\begin{itemize}
-    \item \textbf{Visual clustering of images in latent space}: What objects are recognized? How are they segmented? Where is the VLA paying attention?
-    \item \textbf{Visual clustering of language in latent space}: How do words in instructions relate to the environment that the robot perceives?
-    \item \textbf{Temporal dynamics}: How do representations evolve during task execution?
-    \item \textbf{Layer-wise analysis}: Which layers preserve or lose critical task information?
-\end{itemize}
-
-\subsection{Contributions}
-
-This work makes the following contributions:
-
-\begin{enumerate}
-    \item We develop a systematic methodology for applying Nyström NCut to VLA models, enabling visualization of vision and language token representations across different layers
-    \item We conduct comprehensive experiments analyzing text-image semantics, temporal dynamics, input sensitivity, and spatial comprehension in VLA models
-    \item We provide empirical findings revealing both capabilities and limitations of current VLA architectures, including strong object recognition but limited spatial intelligence
-    \item We demonstrate the effectiveness of NCut-based visual debugging through simulation experiments achieving approximately 70-80\% success rates in pick-and-place tasks
-    \item We establish a framework for future research in interpretable robot foundation models
-\end{enumerate}
-
-\section{Methodology: Nyström NCut}
-
-\subsection{Normalized Cuts Background}
-
-Normalized Cuts (NCut) is a graph-based clustering algorithm introduced by Shi and Malik \cite{shi2000normalized} that formulates image segmentation as a graph partitioning problem. Given a weighted graph $G = (V, E)$ where vertices represent data points (e.g., image patches or feature vectors) and edge weights represent similarity between points, NCut seeks to partition the graph into disjoint sets that minimize the normalized cut criterion:
-
+Given features $\mathbf{F} \in \mathbb{R}^{N \times d}$ extracted from a batch of $B$ images with $N = B \cdot h \cdot w$ total tokens, we construct an affinity matrix $\mathbf{W}$ where $W_{ij} = \exp(-\|\mathbf{f}_i - \mathbf{f}_j\|^2 / 2\sigma^2)$. NCut seeks a partition minimizing
 \begin{equation}
-\text{NCut}(A, B) = \frac{\text{cut}(A, B)}{\text{assoc}(A, V)} + \frac{\text{cut}(A, B)}{\text{assoc}(B, V)}
+\text{NCut}(\mathcal{A}, \mathcal{B}) = \frac{\text{cut}(\mathcal{A}, \mathcal{B})}{\text{vol}(\mathcal{A})} + \frac{\text{cut}(\mathcal{A}, \mathcal{B})}{\text{vol}(\mathcal{B})},
 \end{equation}
+where $\text{cut}(\mathcal{A}, \mathcal{B}) = \sum_{i \in \mathcal{A}, j \in \mathcal{B}} W_{ij}$ and $\text{vol}(\mathcal{A}) = \sum_{i \in \mathcal{A}, j} W_{ij}$. This relaxes to solving $(\mathbf{D} - \mathbf{W})\mathbf{v} = \lambda \mathbf{D}\mathbf{v}$ for the smallest eigenvectors of the normalized Laplacian.
 
-where $\text{cut}(A, B) = \sum_{u \in A, v \in B} w(u, v)$ represents the total weight of edges connecting sets $A$ and $B$, and $\text{assoc}(A, V) = \sum_{u \in A, t \in V} w(u, t)$ measures the total connection from nodes in $A$ to all nodes in the graph.
-
-The optimization of NCut can be relaxed to a generalized eigenvalue problem, allowing efficient computation of clustering solutions. The eigenvectors corresponding to the smallest eigenvalues provide a low-dimensional embedding that respects the cluster structure of the data.
-
-\subsection{Nyström Approximation for Scalability}
-
-For large-scale datasets typical in deep learning applications, computing the full affinity matrix becomes computationally prohibitive. The Nyström method provides an efficient approximation by:
-
-\begin{enumerate}
-    \item Sampling a subset of $m$ landmark points from the full dataset of $n$ points
-    \item Computing the affinity matrix only for these landmarks and their relationships to all points
-    \item Approximating the full eigendecomposition using the landmark-based representation
-\end{enumerate}
-
-This reduces computational complexity from $O(n^2)$ to approximately $O(nm)$, making NCut tractable for analyzing neural network features across large batches of images.
-
-\subsection{Application to VLA Models}
-
-We adapt NCut to analyze VLA hidden layer representations through the following pipeline:
-
-\subsubsection{Feature Extraction}
-
-VLA models typically consist of two primary components:
-\begin{itemize}
-    \item \textbf{Vision Backbone}: Processes images into patch/grid tokens (e.g., using a vision transformer)
-    \item \textbf{Vision-Language Backbone}: Fuses visual and textual information through cross-attention mechanisms before decoding actions
-\end{itemize}
-
-For a given input consisting of images and natural language prompts, we extract:
-\begin{enumerate}
-    \item Vision tokens from intermediate layers of the vision encoder
-    \item Language tokens from layers of the vision-language backbone
-    \item Action representations (when applicable)
-\end{enumerate}
-
-\subsubsection{NCut Clustering and Visualization}
-
-Given extracted features from a batch of samples:
-\begin{enumerate}
-    \item Concatenate all tokens (vision or language) across the batch into a single feature matrix $\mathbf{F} \in \mathbb{R}^{N \times d}$, where $N$ is the total number of tokens and $d$ is the feature dimension
-    \item Compute pairwise affinities and apply Nyström NCut to obtain eigenvector-based coordinates
-    \item Apply t-SNE dimensionality reduction to project the high-dimensional NCut eigenvectors into 3D space
-    \item Map the 3D coordinates to RGB color values, where each token receives a color based on its position in the NCut-derived embedding space
-    \item Visualize the colored tokens overlaid on the original images or text sequences
-\end{enumerate}
-
-This visualization strategy allows us to observe:
-\begin{itemize}
-    \item Tokens with similar colors belong to the same semantic cluster
-    \item Color consistency across images indicates invariance to certain variations
-    \item Color shifts reveal sensitivity to specific factors
-\end{itemize}
+For scalability, we use Nyström approximation: sample $m \ll N$ landmarks, compute the $m \times m$ affinity submatrix and $m \times N$ cross-affinities, then approximate the full eigendecomposition. We project the resulting eigenvectors to RGB via t-SNE for visualization.
 
 \subsection{Debugging Protocol}
 
-We establish a systematic three-step protocol for visual debugging of VLA models:
+Our analysis follows three steps. \textbf{(1) Controlled batches:} We curate image sets that isolate specific factors (e.g., different finger counts to test counting ability). \textbf{(2) Layer-wise inspection:} We run NCut on each layer's activations. If colors shift for perturbed samples but remain stable for others, the model is sensitive to that perturbation at that layer. \textbf{(3) Submodule tracing:} For multi-stage architectures, we separately analyze the vision encoder and vision-language fusion layers to localize failures.
 
-\subsubsection{Step 1: Curate Controlled Batches}
+\subsection{Feature Extraction from VLAs}
 
-To investigate specific failure modes or capabilities, we curate batches of similar images that expose the suspected behavior. For example, if we hypothesize that a VLA struggles to count fingers, we collect hands with different finger counts and process them together. By examining how cluster colors change under these controlled variations, we can assess the model's sensitivity to the relevant semantic cue.
+VLA models consist of a vision encoder (typically a pretrained ViT) that outputs patch tokens, and a language model backbone with cross-attention layers where text tokens attend to image patches. We extract features after each transformer block using forward hooks. For temporal analysis, we process video frames sequentially and concatenate features across time. For language-vision alignment, we jointly cluster image patches and text tokens, then inspect whether semantically related tokens receive similar colors.
 
-\subsubsection{Step 2: Layer-wise Analysis}
+\section{Experiments}
 
-We analyze features layer-by-layer with the entire batch side-by-side. If a small perturbation in one image causes color shifts only in that specific case, the model is highly sensitive to that factor at that layer. Conversely, if colors remain stable across the batch despite perturbations, the model is insensitive to that semantic cue.
+\subsection{Dataset}
 
-Importantly, we examine not only the final layer outputs but also intermediate layers, as information can flow between modalities at each layer in vision-language architectures.
-
-\subsubsection{Step 3: Trace Across Layers and Submodules}
-
-For multi-component systems like VLAs, we separately inspect the vision tower and the vision-language backbone to localize which component fails to preserve the relevant structure. This allows us to identify whether failures originate in visual encoding, language understanding, or cross-modal fusion.
-
-\subsection{Channel Attribution Analysis}
-
-Beyond clustering entire feature vectors, we also analyze which individual feature channels contribute most to specific clusters. For a given cluster mask, we compute the activation patterns of individual channels and identify the top-k channels that exhibit the highest response within that cluster region. This provides insight into what low-level or mid-level features drive the semantic grouping.
-
-\section{VLA Encoder Extraction}
-
-\subsection{Model Architecture}
-
-The VLA models we analyze (OpenVLA and OpenPi 0.5) follow a typical vision-language-action architecture:
-
-\begin{enumerate}
-    \item \textbf{Vision Encoder}: Processes input images to produce spatial feature maps or patch tokens
-    \item \textbf{Language Encoder}: Encodes text instructions into token embeddings
-    \item \textbf{Cross-Modal Fusion}: Attention mechanisms that allow language tokens to attend to vision tokens
-    \item \textbf{Action Decoder}: Generates robot action predictions based on fused representations
-\end{enumerate}
-
-\subsection{Feature Extraction Pipeline}
-
-Our extraction pipeline operates as follows:
-
-\begin{enumerate}
-    \item \textbf{Input Preparation}: Given images and text prompts, we use the HuggingFace AutoProcessor to prepare model inputs, generating pixel values, input IDs, and attention masks
-    \item \textbf{Forward Pass with Hooks}: We register forward hooks on target layers to capture intermediate activations
-    \item \textbf{Vision Tokens}: Extract patch/grid tokens from the vision backbone (typically after self-attention layers)
-    \item \textbf{Language Tokens}: Extract token embeddings from the vision-language fusion layers
-    \item \textbf{Batch Concatenation}: Aggregate features across multiple samples in the batch
-\end{enumerate}
-
-\subsection{Token Alignment}
-
-A critical aspect of our analysis is aligning NCut clusters back to specific tokens:
-
-\begin{itemize}
-    \item \textbf{For vision tokens}: We maintain the spatial grid structure, allowing us to map colors back to image regions
-    \item \textbf{For language tokens}: We preserve the token sequence order, enabling word-level or phrase-level cluster visualization
-\end{itemize}
-
-This alignment is essential for interpreting which parts of the input correspond to which semantic clusters.
-
-\section{Dataset Preparation}
-
-\subsection{Challenges in Robot Manipulation Datasets}
-
-While numerous real-world robot action datasets exist, including large-scale compilations such as the Open X-Embodiment dataset, significant shortcomings persist in open-source robotic manipulation data:
-
-\begin{enumerate}
-    \item \textbf{Lack of Failure Cases}: Most datasets remove failed executions during curation, limiting our ability to study what causes VLA models to fail
-    \item \textbf{Simulation Bias}: Failure case explorations are predominantly conducted in simulation environments, which may not capture real-world complexity
-    \item \textbf{Limited Diversity}: Datasets offering failure cases often suffer from:
-    \begin{itemize}
-        \item Insufficient scale
-        \item Limited action diversity
-        \item Incomplete or inconsistent labeling
-        \item Narrow focus on specific applications
-    \end{itemize}
-    \item \textbf{Informal Curation}: Researchers frequently resort to self-curated datasets with varying levels of rigor in data collection protocols
-\end{enumerate}
-
-\subsection{Our Dataset}
-
-For this study, we utilize a pick-and-place manipulation dataset \cite{wang2019multimodal} that, despite being informal and containing some erroneous data, offers valuable characteristics for our analysis:
-
-\begin{itemize}
-    \item \textbf{Task Diversity}: Wide range of pick-and-place scenarios with different objects and environments
-    \item \textbf{Natural Variations}: Irregularities and permutations serve as advantages for exploring task generalization
-    \item \textbf{Both Success and Failure}: Includes examples where manipulation succeeds and fails
-\end{itemize}
-
-\subsection{Data Processing}
-
-We performed the following preprocessing steps:
-
-\begin{enumerate}
-    \item \textbf{Manual Labeling}: Annotated each sequence for task success or failure
-    \item \textbf{Data Cleaning}: Removed unnecessary metadata and incomplete sequences
-    \item \textbf{Frame Extraction}: Sampled key frames from video sequences for NCut processing, focusing on:
-    \begin{itemize}
-        \item Initial state (before manipulation)
-        \item Approach phase (robot moving toward object)
-        \item Contact/grasp moment
-        \item Transport phase
-        \item Final placement or failure point
-    \end{itemize}
-    \item \textbf{Prompt Generation}: Created natural language instructions corresponding to each manipulation task (e.g., ``pick up the red object and place it in the container'')
-\end{enumerate}
-
-\section{Findings}
+We use a pick-and-place dataset \cite{wang2019multimodal} containing both successful and failed manipulation attempts. While informal and noisy, this diversity helps us study edge cases. We manually label success/failure, extract keyframes (initial state, approach, grasp, transport, placement), and generate natural language prompts like ``pick up the red can and place it on the tray.''
 
 \subsection{Text-Image Semantics}
 
-\subsubsection{Recognition of Key Objects}
+\textbf{Object recognition.} NCut applied to OpenVLA's vision encoder (layer 4) produces distinct color clusters for target objects, the robot gripper, and background. Across lighting and viewpoint changes, objects maintain consistent colors, indicating viewpoint-invariant representations.
 
-Our NCut analysis reveals that VLA models effectively recognize and segment objects critical to robot interactions. When analyzing vision tokens, we observe distinct color clusters corresponding to:
+\textbf{Language grounding.} When we jointly cluster vision and language tokens from the fusion layers, noun phrases align spatially with their visual referents. For example, ``Pringles can'' tokens cluster near the corresponding image region. Verbs like ``pick'' and ``place'' also correlate with gripper and object regions, though more weakly.
 
-\begin{itemize}
-    \item \textbf{Target objects}: Items to be manipulated (e.g., cans, containers) consistently receive similar colors across different viewpoints and lighting conditions
-    \item \textbf{Robot gripper}: The end-effector maintains a consistent cluster identity throughout manipulation sequences
-    \item \textbf{Background elements}: Non-interactive scene components form separate clusters
-\end{itemize}
+\textbf{Failure sensitivity.} We observe color shifts when objects tilt or fall. The model's representation changes rapidly when the gripper slips, suggesting implicit awareness of failure cues even without explicit supervision.
 
-This clustering pattern demonstrates that the vision encoder successfully segments the scene into task-relevant components without explicit supervision for segmentation.
+\subsection{Temporal Dynamics}
 
-\subsubsection{Language-Vision Alignment}
+Tracking cluster assignments across manipulation sequences reveals phase structure. During successful grasps, the object cluster remains stable. Failed attempts show higher volatility, with frequent reassignments indicating representational uncertainty. Plotting cluster distribution over time yields distinct signatures for approach, contact, and release phases.
 
-By visualizing language tokens alongside their corresponding vision tokens, we observe semantic alignment between textual references and visual entities. For instance:
+\subsection{Input Sensitivity}
 
-\begin{itemize}
-    \item When the instruction mentions a specific object (e.g., ``Pringles can''), the language tokens for that phrase cluster near the vision tokens corresponding to the object in the image
-    \item Action verbs (``pick'', ``place'', ``lift'') align with vision tokens representing the gripper and target object
-    \item Spatial prepositions show weaker but discernible alignment with corresponding image regions
-\end{itemize}
+To quantify modality importance, we perturb images (changing lighting, object appearance) and text (swapping verbs or nouns), then measure cosine distance in feature space. Image perturbations induce changes $\Delta_\text{img}$, verb swaps induce $\Delta_\text{verb}$, and noun swaps induce $\Delta_\text{noun}$. We find $\Delta_\text{img} > 10 \cdot \Delta_\text{verb} > \Delta_\text{noun}$, indicating vision dominates.
 
-\subsubsection{Semantic Sensitivity to Failure Indicators}
+We also compute mean Average Precision (mAP) for template-based retrieval. High-mAP nouns include ``room'' (0.36) and ``street'' (0.29); high-mAP verbs include ``park'' (0.45) and ``sit'' (0.38). Action verbs like ``fill'' (0.07) score poorly, suggesting weak action semantics.
 
-Critically, we find that the model exhibits semantic shifts when typical failure indicators appear:
+\subsection{Spatial Intelligence}
 
-\begin{itemize}
-    \item Objects tilting or falling show rapid color changes in their associated tokens
-    \item Gripper slippage correlates with divergence between gripper and object clusters
-    \item Occlusions trigger fragmentation of previously coherent object clusters
-\end{itemize}
+We train a 3-layer MLP to regress 6-DOF camera poses from VLA features on NeRF datasets. Training loss reaches 0.003, but test loss remains at 0.998. Multi-dimensional scaling (MDS) on feature distances versus pose distances shows no correlation. This suggests VLAs memorize appearance-pose pairs without learning geometric priors.
 
-These observations suggest that VLA representations are sensitive to visual cues that often precede task failure, even when the model does not explicitly output failure predictions.
+\subsection{Gradient Flow}
 
-\subsection{Temporal NCut Analysis}
+Computing $\partial \mathcal{L} / \partial \mathbf{f}_i$ for action loss $\mathcal{L}$ reveals that gradients concentrate on object and gripper clusters, with near-zero attribution to background. Examining eigenvector importance shows that coarse partitions (low-frequency eigenvectors) drive action predictions more than fine-grained texture.
 
-To understand how representations evolve during task execution, we apply NCut to sequences of frames and visualize the temporal distribution of cluster assignments.
+\subsection{Simulation Validation}
 
-For a given frame $t$ and cluster $c$, we examine which clusters were assigned to the same spatial region in previous and subsequent frames. This analysis reveals:
+We deploy OpenVLA in a simulated tabletop environment with pick-and-place tasks. Baseline success rate is 71\%. Applying NCut to failure cases reveals fragmented object clusters (poor segmentation) and premature gripper-obstacle overlap. We augment training data to address these issues, raising success to 80\%.
 
-\begin{enumerate}
-    \item \textbf{Cluster Persistence}: Task-relevant objects maintain relatively stable cluster identities throughout successful executions
-    \item \textbf{Phase Transitions}: Distinct phases of manipulation (approach, grasp, transport, release) correspond to shifts in the dominant cluster distribution
-    \item \textbf{Failure Signatures}: Failed executions show higher cluster volatility, with more frequent and abrupt cluster reassignments
-\end{enumerate}
+\section{Bonus: NCut PyTorch Documentation}
 
-The temporal cluster distribution serves as a potential indicator of manipulation confidence and can inform when the model is uncertain about the current state.
+As part of this project, we developed and maintain the official NCut PyTorch documentation at \url{https://ncut-pytorch.readthedocs.io} \cite{ncutpytorch}. The site provides tutorials, API references, and a gallery of applications spanning vision transformers, language models, and diffusion models. Built with Sphinx and hosted on ReadTheDocs, the documentation serves as both a research tool and an educational resource for interpretable machine learning.
 
-\subsection{Input Sensitivity Analysis}
+\section{Discussion}
 
-\subsubsection{Modality Importance}
+Our findings highlight both strengths and limitations of current VLAs. Strong object recognition and failure sensitivity suggest these models learn useful mid-level semantics. However, the 10$\times$ dominance of vision over language raises concerns about instruction following: can VLAs truly ground fine-grained linguistic distinctions, or do they mostly rely on visual priors?
 
-To assess the relative importance of vision versus language, we systematically perturbed inputs and measured the resulting change in feature representations:
+The spatial intelligence failure is particularly troubling. VLAs memorize pose-appearance mappings but do not learn geometric relationships, limiting their ability to reason about occlusions, insertion, or multi-step assembly. Future work should explore geometric inductive biases or 3D-aware representations.
 
-\begin{itemize}
-    \item \textbf{Image perturbations}: Changing object appearance, lighting, or camera angle
-    \item \textbf{Verb perturbations}: Replacing action verbs in instructions (e.g., ``pick'' vs. ``grasp'')
-    \item \textbf{Noun perturbations}: Changing object references (e.g., ``can'' vs. ``container'')
-\end{itemize}
-
-We computed feature space shifts using cosine similarity and found:
-
-\begin{equation}
-\Delta_{\text{image}} > 10 \times \Delta_{\text{verb}} > \Delta_{\text{noun}}
-\end{equation}
-
-This indicates that \textbf{VLA representations are predominantly driven by visual input}, with language playing a secondary modulatory role. The model appears to prioritize visual grounding over linguistic nuances.
-
-\subsubsection{Semantic Clustering via Template Matching}
-
-To further quantify semantic organization, we conducted a template-based classification experiment:
-
-\begin{enumerate}
-    \item Selected 30 images from the COCO dataset containing a specific word (e.g., ``push'')
-    \item Averaged their feature representations to create a template
-    \item Computed cosine similarity between this template and other images
-    \item Calculated mean Average Precision (mAP) for classification
-\end{enumerate}
-
-Results show varying degrees of semantic clustering:
-
-\textbf{Nouns} (objects and scene elements):
-\begin{itemize}
-    \item High mAP: room (0.363), street (0.291), field (0.272), grass (0.255), plate (0.200)
-    \item Low mAP: picture (0.085), shirt (0.071), water (0.115)
-\end{itemize}
-
-\textbf{Verbs} (actions):
-\begin{itemize}
-    \item High mAP: park (0.451), sit (0.375)
-    \item Medium mAP: walk (0.122), ride (0.107), play (0.097)
-    \item Low mAP: look (0.098), wear (0.075), fill (0.068), show (0.051)
-\end{itemize}
-
-These results suggest that VLAs form stronger semantic clusters for stationary objects and static scenes than for dynamic actions, which may explain challenges in fine-grained action discrimination.
-
-\subsection{Spatial and Orientation Comprehension}
-
-\subsubsection{Spatial Intelligence Evaluation}
-
-To evaluate spatial understanding, we trained shallow MLPs to predict camera poses from VLA features using NeRF datasets:
-
-\begin{itemize}
-    \item \textbf{Input}: VLA feature vectors extracted from images
-    \item \textbf{Output}: 6-DOF camera poses (position and orientation)
-    \item \textbf{Training loss}: 0.003 (near-perfect fitting)
-    \item \textbf{Test loss}: 0.998 (complete failure to generalize)
-\end{itemize}
-
-This dramatic generalization gap suggests that \textbf{VLA features encode pose information in a sample-specific manner} (one-to-one mapping) but \textbf{lack generalizable spatial intelligence}. The model essentially memorizes the training set rather than learning geometric principles.
-
-\subsubsection{Multi-Dimensional Scaling Analysis}
-
-We applied Multi-Dimensional Scaling (MDS) to visualize how feature distances relate to pose distances:
-
-\begin{itemize}
-    \item For the Lego dataset (first 10 validation samples), VLA feature affinities show no clear correspondence to actual pose distances
-    \item Nearby views in 3D space do not consistently produce nearby features
-    \item Features appear to capture appearance variations rather than geometric relationships
-\end{itemize}
-
-This limitation has important implications for tasks requiring precise spatial reasoning, such as insertion, stacking, or navigation.
-
-\subsection{Backpropagation and Gradient Flow}
-
-To understand how different clusters influence action predictions, we computed gradients of cluster-specific activations with respect to predicted actions.
-
-\subsubsection{Cluster-Specific Attribution}
-
-For a given image, we:
-\begin{enumerate}
-    \item Identified major clusters (e.g., object cluster, gripper cluster, background cluster)
-    \item Computed the gradient of action predictions with respect to features within each cluster
-    \item Visualized gradient magnitudes overlaid on the NCut segmentation
-\end{enumerate}
-
-Findings include:
-\begin{itemize}
-    \item \textbf{Object-centric gradients}: Strongest gradients concentrate on the target object and gripper
-    \item \textbf{Background insensitivity}: Background regions exhibit near-zero gradients, confirming they do not influence action predictions
-    \item \textbf{Edge emphasis}: Gradients peak at object boundaries, suggesting the model attends to shape and contour
-\end{itemize}
-
-\subsubsection{Eigenvector Importance}
-
-We analyzed which NCut eigenvectors (cluster dimensions) most influence action predictions by examining different eigenvalues:
-
-\begin{itemize}
-    \item Lower-indexed eigenvectors (corresponding to coarser partitions) show higher correlation with action changes
-    \item Higher-indexed eigenvectors (fine-grained details) have minimal impact
-    \item This suggests that coarse semantic grouping matters more than fine-grained texture for action prediction
-\end{itemize}
-
-\subsection{Simulation Experiments}
-
-\subsubsection{Experimental Setup}
-
-To validate our findings, we conducted controlled manipulation experiments in simulation:
-
-\begin{itemize}
-    \item \textbf{Environment}: Simulated tabletop with various objects (cylinders, cubes, rings)
-    \item \textbf{Task}: Pick-and-place with natural language instructions
-    \item \textbf{Robot}: Simulated 6-DOF arm with parallel-jaw gripper
-    \item \textbf{Evaluation}: Success rate over 50 randomized trials
-\end{itemize}
-
-\subsubsection{Results}
-
-The VLA model achieved:
-\begin{itemize}
-    \item \textbf{Baseline success rate}: Approximately 70.83\% when objects are clearly visible and separated
-    \item \textbf{Improved success rate}: Approximately 80\% after fine-tuning on a small dataset of simulation examples
-\end{itemize}
-
-Failure modes primarily involved:
-\begin{itemize}
-    \item Occlusions or overlapping objects (reduced visibility)
-    \item Ambiguous language instructions
-    \item Edge cases requiring precise spatial reasoning
-\end{itemize}
-
-\subsubsection{NCut-Guided Debugging}
-
-By applying NCut to failed cases, we identified specific patterns:
-\begin{itemize}
-    \item Failed grasps corresponded to fragmented object clusters (poor segmentation)
-    \item Collisions occurred when the gripper cluster overlapped with obstacle clusters before action execution
-    \item Incorrect placements correlated with weak alignment between language goal tokens and visual target region tokens
-\end{itemize}
-
-These insights guided targeted data augmentation, focusing on scenarios with occlusions and ambiguous language, which contributed to the success rate improvement.
-
-\section{Future Work}
-
-\subsection{Extension to OpenPi 0.5}
-
-While this study focused primarily on OpenVLA, we plan to extend our analysis to OpenPi 0.5 \cite{physicalintelligence2025pi05}, which represents a more recent and capable VLA architecture. Comparing the two models will reveal:
-
-\begin{itemize}
-    \item How architectural differences affect feature geometry
-    \item Whether more advanced models exhibit improved spatial reasoning
-    \item If newer training paradigms lead to more interpretable representations
-\end{itemize}
-
-\subsection{Deeper Semantic Analysis}
-
-Several directions warrant further investigation:
-
-\subsubsection{Temporal Alignment with Instructions}
-
-We aim to determine whether temporal NCut patterns align with the sequential structure of language instructions. For multi-step tasks (e.g., ``first pick up the red block, then place it on the blue block''), do cluster transitions correspond to instruction phrase boundaries?
-
-\subsubsection{Predictive Capabilities}
-
-Can the model predict future states or infer missing intermediate steps given limited context? By masking portions of a manipulation sequence and examining the feature space, we can assess whether VLAs learn predictive world models or merely reactive policies.
-
-\subsection{Making OpenVLA Fail}
-
-A systematic investigation of failure modes will:
-\begin{itemize}
-    \item Identify adversarial scenarios that reliably cause failures
-    \item Characterize the boundary of the model's capabilities
-    \item Guide the development of more robust training procedures
-\end{itemize}
-
-Planned experiments include:
-\begin{itemize}
-    \item Adversarial perturbations to images and language
-    \item Out-of-distribution object geometries and materials
-    \item Contradictory or ambiguous instructions
-\end{itemize}
-
-\subsection{Integration with Failure Recovery Systems}
-
-Given recent work on language-guided failure recovery \cite{dai2024racer, duan2024aha}, we plan to:
-\begin{itemize}
-    \item Use NCut analysis to detect early warning signs of impending failure
-    \item Trigger recovery behaviors based on cluster instability or anomalous patterns
-    \item Develop interpretable explanations for failures that can guide human intervention
-\end{itemize}
-
-\section{Bonus: NCut PyTorch Documentation Website}
-
-As part of this project, we developed and deployed a comprehensive documentation website for the Nyström Normalized Cuts PyTorch implementation \cite{ncutpytorch}. This resource serves the broader research community by providing accessible tutorials, API references, and practical examples for applying NCut to deep learning models.
-
-\subsection{Website Features}
-
-The documentation website, available at \url{https://ncut-pytorch.readthedocs.io/en/latest/}, includes:
-
-\begin{itemize}
-    \item \textbf{Interactive Tutorials}: Step-by-step guides covering basic NCut operations, color visualization techniques, and advanced usage patterns for feature alignment and debugging
-    \item \textbf{Comprehensive API Documentation}: Detailed descriptions of all modules, classes, and functions, including parameter specifications and return value formats
-    \item \textbf{Model Gallery}: Examples demonstrating NCut applications across various architectures including vision transformers, language models, and multimodal systems
-    \item \textbf{Mathematical Foundations}: Explanations of the underlying spectral clustering theory, Nyström approximation, and dimensionality reduction via t-SNE
-    \item \textbf{Best Practices}: Guidelines for selecting hyperparameters, handling large-scale datasets, and interpreting visualization outputs
-\end{itemize}
-
-\subsection{Technical Implementation}
-
-The website is built using Sphinx documentation generator with the following components:
-
-\begin{itemize}
-    \item \textbf{Automated Documentation}: Docstrings from the PyTorch codebase are automatically parsed to generate API references
-    \item \textbf{Jupyter Notebook Integration}: Interactive examples are rendered directly from Jupyter notebooks, allowing users to see both code and outputs
-    \item \textbf{Version Control}: Documentation is version-controlled alongside the code repository, ensuring consistency between releases
-    \item \textbf{ReadTheDocs Hosting}: Continuous integration automatically rebuilds and deploys documentation upon code updates
-\end{itemize}
-
-\subsection{Community Impact}
-
-Since its deployment, the NCut PyTorch documentation has facilitated:
-
-\begin{enumerate}
-    \item \textbf{Broader Adoption}: Researchers beyond robotics have applied the toolkit to interpret vision-language models, diffusion models, and other foundation models
-    \item \textbf{Educational Value}: The website serves as a teaching resource for courses on interpretable machine learning and computer vision
-    \item \textbf{Collaborative Development}: Clear documentation has enabled external contributors to submit improvements and extensions to the codebase
-\end{enumerate}
-
-By providing this resource, we aim to democratize access to powerful visualization techniques for understanding complex neural networks. The documentation continues to evolve based on community feedback and emerging use cases.
+We plan to extend this analysis to OpenPi 0.5 \cite{physicalintelligence2025pi05} and investigate whether temporal NCut patterns align with instruction structure in multi-step tasks. Integrating NCut-based early warning signals with failure recovery systems \cite{dai2024racer,duan2024aha} could enable more robust deployment.
 
 \section{Conclusion}
 
-This work demonstrates the effectiveness of Nyström Normalized Cuts as a tool for interpreting and debugging Vision-Language-Action models. Through systematic analysis of feature geometry across layers, we have uncovered both strengths and limitations of current VLA architectures.
-
-Our key findings include:
-\begin{enumerate}
-    \item VLAs exhibit strong semantic understanding of task-relevant objects and recognize failure indicators
-    \item Visual input dominates language in shaping representations, with image changes producing 10$\times$ larger feature shifts than language changes
-    \item Temporal dynamics reveal distinct manipulation phases and failure signatures
-    \item Spatial intelligence remains limited, with poor generalization in pose estimation tasks
-    \item Coarse semantic clustering (low-frequency eigenvectors) drives action predictions more than fine details
-\end{enumerate}
-
-By establishing a visual debugging framework based on NCut, we provide researchers and practitioners with a methodology for probing the internal mechanisms of robot foundation models. As VLAs continue to advance toward real-world deployment, such interpretability tools will be essential for ensuring reliability, safety, and trustworthiness.
-
-The insights gained from this investigation not only deepen our understanding of current models but also point toward future improvements, including better spatial reasoning, more balanced multi-modal fusion, and enhanced robustness to distributional shifts. We hope this work inspires further research into interpretable and debuggable robot learning systems.
+Nyström NCut provides a practical tool for debugging robot foundation models. By visualizing feature geometry, we uncover semantic structure, diagnose failure modes, and identify architectural weaknesses. Our analysis reveals that VLAs excel at object-centric reasoning but struggle with language grounding and spatial generalization. As these models scale, interpretability will be essential for safe and reliable real-world deployment.
 
 \bibliographystyle{plain}
 \bibliography{sample}
