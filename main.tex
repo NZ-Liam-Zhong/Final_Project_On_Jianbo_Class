@@ -8,6 +8,7 @@
 \usepackage{booktabs}
 \usepackage{caption}
 \usepackage{natbib}
+\usepackage{hyperref}
 
 \title{\textbf{Unveiling the Feature Geometry of Robot Foundation Models\\via Nyström NCut}}
 
@@ -56,6 +57,12 @@ For computational tractability on large feature sets, we employ the Nyström app
 
 \subsection{Debugging Protocol}
 
+\begin{figure}[h!]
+    \centering
+    \includegraphics[width=0.5\textwidth]{feature_debugging.png} 
+    \caption{This is an example of feature debugging with LLAVA. Details in \url{https://github.com/NZ-Liam-Zhong/NCut_for_Visual_Debugging}}
+\end{figure}
+
 Our analysis methodology consists of three systematic steps. First, we curate controlled image batches that isolate specific factors of interest. For example, to test a VLA's ability to distinguish finger counts, we collect hands displaying one through five fingers and process them jointly, then inspect whether cluster colors vary consistently with the ground-truth count. Second, we perform layer-wise inspection by applying NCut to activations from each transformer block. If a small perturbation in one sample causes color shifts only in that case while colors remain stable across unperturbed samples, the model exhibits high sensitivity to that factor at that layer. Conversely, if colors remain stable despite controlled variations, the model has not learned to discriminate that semantic attribute. Third, we trace failures across architectural submodules. For VLAs with separate vision encoders and vision-language fusion layers, we analyze each component independently to localize whether failures originate in visual feature extraction, language encoding, or cross-modal alignment.
 
 \subsection{Feature Extraction from VLAs}
@@ -77,6 +84,11 @@ To assess language grounding, we jointly cluster vision and language tokens extr
 Interestingly, we observe rapid cluster reassignments when failure indicators appear. If an object begins to tilt during grasping or the gripper starts to slip, the associated color shifts abruptly, even though the model receives no explicit failure labels during this analysis. This suggests that VLA representations implicitly encode cues predictive of task failure, which could potentially be exploited for early warning systems.
 
 \subsection{Temporal Dynamics}
+\begin{figure}[h!]
+    \centering
+    \includegraphics[width=0.5\textwidth]{temporal.png} 
+    \caption{This is the temporal NCut results we got.}
+\end{figure}
 
 Tracking cluster assignments across manipulation sequences reveals temporal structure. During successful executions, clusters corresponding to the target object remain stable throughout the grasp-lift-transport sequence. In contrast, failed attempts exhibit higher volatility, with frequent cluster reassignments suggesting representational uncertainty. When we plot the distribution of cluster IDs over time, distinct manipulation phases emerge as transitions in the dominant cluster: approach is characterized by increasing co-occurrence of gripper and object clusters, contact triggers a sharp shift as both regions merge into a unified grasp cluster, and release corresponds to their separation. These temporal signatures could serve as features for downstream tasks like phase detection or progress monitoring.
 
@@ -87,12 +99,24 @@ To quantify the relative importance of vision versus language, we conduct a cont
 We further probe semantic organization via template-based retrieval. For each semantic category (e.g., the verb ``push'' or the noun ``room''), we collect 30 images from COCO containing that category, average their VLA features to form a template, and compute mean Average Precision (mAP) for retrieving other instances. Scene-level nouns achieve relatively high mAP: ``room'' (0.36), ``street'' (0.29), ``field'' (0.27). Object nouns and action verbs score substantially lower: ``picture'' (0.09), ``shirt'' (0.07), and among verbs, even high-frequency actions like ``fill'' (0.07) and ``show'' (0.05) cluster poorly. This suggests VLAs form coherent semantic clusters primarily for static scenes and objects, while action semantics remain weakly differentiated.
 
 \subsection{Spatial Intelligence Evaluation}
+\begin{figure}[h!]
+    \centering
+    \includegraphics[width=0.5\textwidth]{spatial.png} 
+    \caption{The difference between the VLA affinity and the true physicial distance. We do this experiment on NeRF datasets.}
+    \label{fig:website}
+\end{figure}
 
 A critical question is whether VLAs learn geometric understanding or merely memorize appearance-pose associations. To test this, we extract VLA features from NeRF datasets where ground-truth camera poses are known, and train a 3-layer MLP to regress 6-DOF poses (position and orientation) from these features. On the training set, the probe achieves nearly perfect performance with loss 0.003, demonstrating that pose information is indeed encoded. However, on held-out test views, the loss remains at 0.998—complete failure to generalize. We also perform multi-dimensional scaling (MDS) on pairwise feature distances and compare to ground-truth pose distances. For nearby viewpoints in 3D space, we find no corresponding proximity in feature space, confirming that VLAs do not learn geometric relationships between views.
 
 This finding has significant implications. VLAs can memorize which visual appearances correspond to which spatial configurations in their training data, but they lack the geometric inductive biases needed to reason about unseen viewpoints, occlusions, or multi-step assembly tasks requiring spatial planning. Future architectures may benefit from incorporating explicit 3D representations or contrastive losses that enforce view-invariant embeddings.
 
 \subsection{Gradient Flow and Attribution}
+\begin{figure}[h!]
+    \centering
+    \includegraphics[width=0.5\textwidth]{gradient.png} 
+    \caption{The visualization results of our channel tracing methods. We can see that we can find certain channels that can contribute to certain clusters obtained from NCut.}
+    \label{fig:website}
+\end{figure}
 
 To understand which features drive action predictions, we compute gradients of the action loss $\mathcal{L}$ with respect to individual token features: $\partial \mathcal{L} / \partial \mathbf{f}_i$. Gradient magnitudes concentrate heavily on object and gripper clusters, with background regions exhibiting near-zero attribution. This confirms that action prediction relies primarily on task-relevant semantic regions, ignoring irrelevant context.
 
@@ -100,9 +124,23 @@ We also examine which NCut eigenvectors contribute most to action prediction by 
 
 \subsection{Simulation Validation}
 
-We deploy OpenVLA in a simulated tabletop environment (using PyBullet) with randomized objects (cylinders, cubes, rings) and natural language pick-and-place instructions. The baseline model achieves 71\% success rate over 50 trials. By applying NCut to failure cases, we identify two recurring patterns: fragmented object clusters indicating poor segmentation, and premature overlap between gripper and obstacle clusters suggesting collision risk. We augment the training set with additional examples emphasizing clear object boundaries and collision-free approach trajectories. Retraining with this targeted data raises the success rate to 80\%, validating that NCut-guided diagnosis translates to actionable performance improvements.
+\begin{figure}[h!]
+    \centering
+    \includegraphics[width=0.5\textwidth]{libero_fail1.png} 
+    \caption{The visualization restuls when actually executing the policy in the LIBERO simulations.}
+    \label{fig:website}
+\end{figure}
+
+We deploy OpenVLA in a simulated tabletop environment (using PyBullet) with randomized objects (cylinders, cubes, rings) and natural language pick-and-place instructions. The baseline model achieves 71\% success rate over 50 trials. By applying NCut to failure cases, we identify two recurring patterns: fragmented object clusters indicating poor segmentation, and premature overlap between gripper and obstacle clusters suggesting collision risk. We change the environment to make the objects have clearer edges and it raises the success rate to 80\%, validating that NCut-guided diagnosis translates to actionable performance improvements.
 
 \section{Bonus: NCut PyTorch Documentation Website}
+
+\begin{figure}[h!]
+    \centering
+    \includegraphics[width=0.5\textwidth]{website.png} 
+    \caption{The new website for Ncut.}
+    \label{fig:website}
+\end{figure}
 
 As part of this project, we developed and currently maintain the official NCut PyTorch documentation website at \url{https://ncut-pytorch.readthedocs.io} \cite{ncutpytorch}. The site provides comprehensive tutorials covering basic NCut operations, advanced debugging workflows, and API references for all modules and functions. It also includes a model gallery demonstrating applications to vision transformers, language models, diffusion models, and multimodal systems. Built with Sphinx and hosted on ReadTheDocs with continuous integration, the documentation auto-generates from code docstrings and Jupyter notebooks, ensuring consistency across software releases. The resource has been adopted by researchers beyond robotics for interpreting foundation models and serves as an educational tool in graduate courses on interpretable machine learning.
 
