@@ -9,6 +9,23 @@
 \usepackage{caption}
 \usepackage{tabularx}
 \usepackage{natbib}
+\usepackage{listings}
+\usepackage{xcolor}
+
+% Code listing style
+\lstset{
+    language=Python,
+    basicstyle=\ttfamily\scriptsize,
+    keywordstyle=\color{blue},
+    commentstyle=\color{gray},
+    stringstyle=\color{orange},
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    breaklines=true,
+    frame=single,
+    captionpos=b,
+    showstringspaces=false
+}
 
 \title{\textbf{Unveiling the Feature Geometry of Robot Foundation Models via Nyström NCut}}
 
@@ -53,7 +70,7 @@ Given features $\mathbf{F} \in \mathbb{R}^{N \times d}$ extracted from a batch o
 \end{equation}
 where $\text{cut}(\mathcal{A}, \mathcal{B}) = \sum_{i \in \mathcal{A}, j \in \mathcal{B}} W_{ij}$ measures edge weight between partitions and $\text{vol}(\mathcal{A}) = \sum_{i \in \mathcal{A}, j} W_{ij}$ is the total connection strength from partition $\mathcal{A}$ to all nodes. This optimization relaxes to solving the generalized eigenvalue problem $(\mathbf{D} - \mathbf{W})\mathbf{v} = \lambda \mathbf{D}\mathbf{v}$ for the smallest eigenvectors of the normalized graph Laplacian, where $\mathbf{D}$ is the diagonal degree matrix.
 
-For computational tractability on large feature sets, we employ the Nyström approximation. Rather than computing the full $N \times N$ affinity matrix, we randomly sample $m \ll N$ landmark points and compute only the $m \times m$ landmark-to-landmark affinities and $m \times N$ landmark-to-all-points cross-affinities. The full eigendecomposition is then approximated via this low-rank representation, reducing complexity from $O(N^2)$ to $O(Nm)$. We project the resulting high-dimensional eigenvectors to RGB color space via t-SNE, enabling intuitive visualization where tokens with similar colors belong to the same semantic cluster.
+For computational tractability on large feature sets, we employ the Nyström approximation. Rather than computing the full $N \times N$ affinity matrix, we randomly sample $m \ll N$ landmark points and compute only the $m \times m$ landmark-to-landmark affinities and $m \times N$ landmark-to-all-points cross-affinities. The full eigendecomposition is then approximated via this low-rank representation, reducing complexity from $O(N^2)$ to $O(Nm)$. We project the resulting high-dimensional eigenvectors to RGB color space via t-SNE, enabling intuitive visualization where tokens with similar colors belong to the same semantic cluster. See Appendix~\ref{app:ncut_implementation} for implementation details.
 
 \subsection{Debugging Protocol}
 
@@ -94,7 +111,7 @@ Third, we perform comparative analysis across model configurations and failure c
 
 \subsection{Feature Extraction from VLAs}
 
-VLA architectures typically consist of a vision encoder (often a pretrained ViT) that processes images into spatial patch tokens, and a language model backbone with interleaved cross-attention layers where image patches attend to text tokens. We extract intermediate representations by registering forward hooks on transformer blocks. For temporal analysis of manipulation videos, we process frames sequentially and concatenate patch features across time, yielding a 4D tensor that NCut partitions into spatio-temporal clusters. For language-vision alignment studies, we jointly cluster image patches and text tokens from fusion layers, then examine whether semantically related tokens (e.g., the word ``can'' and the visual region depicting a can) receive similar cluster assignments.
+VLA architectures typically consist of a vision encoder (often a pretrained ViT) that processes images into spatial patch tokens, and a language model backbone with interleaved cross-attention layers where image patches attend to text tokens. We extract intermediate representations by registering forward hooks on transformer blocks. For temporal analysis of manipulation videos, we process frames sequentially and concatenate patch features across time, yielding a 4D tensor that NCut partitions into spatio-temporal clusters. For language-vision alignment studies, we jointly cluster image patches and text tokens from fusion layers, then examine whether semantically related tokens (e.g., the word ``can'' and the visual region depicting a can) receive similar cluster assignments. Appendix~\ref{app:feature_extraction} provides code for extracting vision and language features from OpenVLA.
 
 \section{Experiments and Results}
 
@@ -189,7 +206,7 @@ This finding has significant implications. VLAs can memorize which visual appear
     \label{fig:website}
 \end{figure}
 
-To understand which features drive action predictions, we compute gradients of the action loss $\mathcal{L}$ with respect to individual token features: $\partial \mathcal{L} / \partial \mathbf{f}_i$. Gradient magnitudes concentrate heavily on object and gripper clusters, with background regions exhibiting near-zero attribution. This confirms that action prediction relies primarily on task-relevant semantic regions, ignoring irrelevant context.
+To understand which features drive action predictions, we compute gradients of the action loss $\mathcal{L}$ with respect to individual token features: $\partial \mathcal{L} / \partial \mathbf{f}_i$ (see Appendix~\ref{app:gradient_attribution} for implementation). Gradient magnitudes concentrate heavily on object and gripper clusters, with background regions exhibiting near-zero attribution. This confirms that action prediction relies primarily on task-relevant semantic regions, ignoring irrelevant context.
 
 We also examine which NCut eigenvectors contribute most to action prediction by analyzing the correlation between eigenvector coefficients and action output variations. Lower-frequency eigenvectors, corresponding to coarse semantic partitions, show strong correlations with action changes. Higher-frequency eigenvectors capturing fine texture details have minimal impact. This suggests that VLA action heads primarily operate on coarse object-level segmentation rather than fine-grained visual features, which may explain robustness to appearance variations but also fragility to subtle geometric misalignments.
 
@@ -231,5 +248,134 @@ Nyström Normalized Cuts provides a practical and scalable tool for debugging ro
 
 \bibliographystyle{plain}
 \bibliography{sample}
+
+\onecolumn
+\appendix
+
+\section{Appendix}
+
+\subsection{NCut Implementation}
+\label{app:ncut_implementation}
+
+The core NCut coloring function extracts features from a transformer layer and projects them to RGB space via eigendecomposition and t-SNE. We cast all operations to float32 on CPU to ensure numerical stability.
+
+\begin{lstlisting}[caption={Core NCut coloring function for feature visualization.}]
+def color_from_ncut(features: torch.Tensor, n_eig: int = 10) -> np.ndarray:
+    """Run NCut on features [num_tokens, hidden] and return RGB colors.
+    
+    Always casts to float32 on CPU to avoid half-precision 
+    CUDA ops (e.g., cdist) not implemented.
+    """
+    from ncut_pytorch import ncut_fn, tsne_color
+
+    with torch.no_grad():
+        f32 = features.detach().to(device="cpu", dtype=torch.float32)
+        eigvecs, _ = ncut_fn(f32, n_eig=n_eig)
+    colors = tsne_color(eigvecs)
+    return colors.cpu().numpy()
+\end{lstlisting}
+
+For k-way partitioning with gradient tracking (used in Section~\ref{app:gradient_attribution}), we employ a differentiable variant:
+
+\begin{lstlisting}[caption={Differentiable k-way NCut for gradient-based analysis.}]
+def differentiable_kway_ncut(features_flat: torch.Tensor, n_segment: int):
+    """Run NCut with gradient tracking on CPU float32.
+
+    features_flat: [N, C] requires_grad=True will be honored.
+    Returns (eigvec, kway_eigvec) both tensors on CPU.
+    """
+    from ncut_pytorch import ncut_fn, kway_ncut
+    f32 = features_flat.to(device="cpu", dtype=torch.float32)
+    eigvec, _ = ncut_fn(f32, n_eig=n_segment, track_grad=True)
+    kway_eigvec = kway_ncut(eigvec)
+    return eigvec, kway_eigvec
+\end{lstlisting}
+
+\subsection{Feature Extraction from OpenVLA}
+\label{app:feature_extraction}
+
+We extract vision tokens from OpenVLA's vision backbone by accessing the intermediate representations after the visual encoder processes the input images.
+
+\begin{lstlisting}[caption={Extracting vision tokens from OpenVLA.}]
+def openvla_get_vision_tokens(model, inputs, dtype, device) -> torch.Tensor:
+    with torch.no_grad():
+        pixel_values = inputs["pixel_values"]
+        pixel_values = pixel_values.to(device, dtype=dtype)
+        
+        if hasattr(model, "vision_backbone"):
+            vision_features = model.vision_backbone(pixel_values)
+        else:
+            raise ValueError("OpenVLA vision component not found")
+
+        if hasattr(vision_features, "last_hidden_state"):
+            tokens = vision_features.last_hidden_state  # [B, N, C]
+        elif isinstance(vision_features, torch.Tensor):
+            tokens = vision_features
+        elif isinstance(vision_features, (tuple, list)):
+            tokens = vision_features[0]
+        else:
+            raise ValueError(f"Unexpected type: {type(vision_features)}")
+    return tokens
+\end{lstlisting}
+
+For language features, we retrieve hidden states from the language model backbone:
+
+\begin{lstlisting}[caption={Extracting language hidden states from OpenVLA.}]
+def openvla_get_language_layers(model, inputs) -> List[torch.Tensor]:
+    """Retrieve language hidden states layers for OpenVLA.
+    
+    Returns a tuple/list where each entry is [B, T, H] tensor.
+    """
+    with torch.no_grad():
+        if inputs.get("pixel_values") is not None:
+            target_dtype = next(model.parameters()).dtype
+            inputs["pixel_values"] = inputs["pixel_values"].to(
+                model.device, dtype=target_dtype)
+        
+        fwd = model(
+            input_ids=inputs.get("input_ids"),
+            pixel_values=inputs.get("pixel_values"),
+            attention_mask=inputs.get("attention_mask"),
+            output_hidden_states=True,
+            return_dict=True,
+        )
+        
+        for key in ["hidden_states", "decoder_hidden_states"]:
+            if hasattr(fwd, key) and getattr(fwd, key) is not None:
+                return getattr(fwd, key)
+                
+    raise RuntimeError("Could not retrieve language hidden states.")
+\end{lstlisting}
+
+\subsection{Gradient Attribution for Clusters}
+\label{app:gradient_attribution}
+
+To compute which feature channels contribute most to a given NCut cluster (as discussed in Section 4.6), we backpropagate through the k-way eigenvector assignments:
+
+\begin{lstlisting}[caption={Computing channel gradients for cluster attribution.}]
+def channel_gradient_from_cluster(
+    features_flat: torch.Tensor, 
+    cluster_mask_flat: torch.Tensor, 
+    kway_eigvec: torch.Tensor, 
+    cluster_idx: int
+) -> torch.Tensor:
+    """Compute average channel gradient for a specific cluster.
+
+    features_flat: [N, C] with requires_grad=True (CPU float32)
+    cluster_mask_flat: [N] bool tensor (CPU)
+    returns grad: [C] (CPU)
+    """
+    assert features_flat.requires_grad is True
+    if features_flat.grad is not None:
+        features_flat.grad.zero_()
+    
+    cluster_mask_flat = cluster_mask_flat.to(device=features_flat.device)
+    loss = -kway_eigvec[cluster_mask_flat, cluster_idx].abs().mean()
+    loss.backward(retain_graph=True)
+    grad = features_flat.grad[cluster_mask_flat].mean(0)
+    return grad.detach()
+\end{lstlisting}
+
+This gradient computation enables us to identify which feature dimensions are most associated with each semantic cluster, revealing that lower-frequency eigenvectors (capturing coarse semantic partitions) show stronger correlations with action predictions than higher-frequency components capturing fine texture details.
 
 \end{document}
