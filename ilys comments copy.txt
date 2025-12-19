@@ -1,0 +1,63 @@
+Ily’s comments:
+
+-------------------------------------------------------------------------------------------------------------------------------------
+
+There seems to be a surprising lack of opnesource robot datasets for fail cases - especially in real world cases. vlas seem to be generally trained on large compiled dataset like x-embiniment, which while offering a great and diverse range of practical robot implementations, they lack in enabling teaching of failures and the semantics of failure. Existing research into this shows use of individually curated datasets for individual research, and use of models for feeding back to the vla to supplement understanding and solving of fail cases.
+
+Of the relevant failure datasets found limitations were found with each. Some were limited in size (multimodal....), others limited in labelling (reassemble?, multimodal....), and others which had both good breadth and labels used labels which were not related to our application of pick-and-place and also removed/ignored instances of relevant fail cases to this application (ROBOMind).
+
+While individually curated datasets were found to be useful, they inertially consist of limitations in their breadth/size, and lack in consistency of data collection (arm orientation, camera speed, instances of arm leaving frame, examples of missing/inappropriate data). While these offer variation useful in our instance, they may inhibit the usefulness of the dataset in cases where uniformity is crucial.
+
+-----------------------------------------------------------------------------------------------------------------------------------
+
+Choice of implementing this segmentation analysis on pick and place, as this is the most common basic robot manipulation operation and is the focus of most large datasets. Thus it hopefully has a very high likelihood of recognition/semantics within VLAs used.
+
+-----------------------------------------------------------------------------------------------------------------------------------
+
+While this dataset does offer variations/ permutations within its limited data size, most of these interactions can still be segmented into three types: top, back, right.
+
+Amongst each of these, especially within a sub-dataset, the actions/paths taken are greatly similar. This limited the database's breadth and variety. While this can be seen as a downside, there is also an upside. In cases where there are variations of both success and failure between each sub-dataset - the minimal variation leading to a noticeable outcome can lead to a successful needing to be very precise in noticing the variations which lead to ultimate success/failure.
+
+-----------------------------------------------------------------------------------------------------------------------------------
+
+Cheezit dataset:
+
+note that my labelling is success if the arm lifts the object, holds it, and then places it down successfully. otherwise the data is labelled fail. note that there is gray area - what if the grasp is good enough for the time period of execution, but is slipping? For the time being i have decided to label this as success, but depending on what we wish to do fail may be more appropriate. there is also an edge case where the video ends before the task elapses enough time to determine success - for which the "nondeterminant" label is provided.
+
+note that the dataset is also supplementary by providing the exact frame of first and last contact of the gripper with the object (i believe to be identified using tactile sensors), as well as depth data and logging of the arm's position and tactile data throughout execution of the task.
+
+some of the dataset is missing video data for a reason i do not yet know. i exclude these from the labelled dataset.
+
+-------------------------------------------------------------------------------------------------------------------------------------
+
+Coffeecup dataset:
+
+Looking through the Coffeecup section of the pick and place dataset, there are a few notable differences:
+1. some videos seem to have been sped up, but not all
+2. the top-down grasping consistently leads to the gripper leaving frame, which is not necessarily new except for that-
+3. the top-down grasping intentionally drops the object straight down into place instead of lowering it manually
+
+This is actually not all bad, and can serve as a dataset wherein we can not only test the limits of the VLA, but also determine if it is capable of distinguishing failure and success in scenarios where the task's goal is unclear:
+1. If provided the full batch of videos together for this Coffeecup section, might it be able to distinguish dropping as a separate fail case from failed grasping?
+2. In that case, could it also segment and dichotomise the two edge cases sufficiently to recognise the dropping as the intended outcome?
+3. Furthermore, capability to do any of these amongst the mismatch of sped up and normal speed videos would require the model to have some sense of the actions taken, and their temporal relations, as it may no longer rely on timestamps to detect the different phases of action of each task.
+Also note that for the dataset, the "back", "right", "top" folders refer to the camera's angle. This new angle represents a new test, and is not just multiple simultaneous camera angles.
+
+Note that this dataset section also consists of many instances of slipping after a successful grasp and lift
+
+-------------------------------------------------------------------------------------------------------------------------------------
+
+Crips, Cola, and Suger datasets:
+
+Both the Crisp and Cola dataset feature successful actions (for the top-down interaction) which feature dropping the object ultimately. The suger dataset also features ultimate dropping, however for side-approach interactions. In these scenarios, the grimmer leaves the camera frame.
+
+These are labelled only as success if the object is left upright after dropping. Additionally, cases exist where the object is accidentally dropped, however, it remains upright. In these cases the action is labelled as successful. This provides visual consistency and temporal variation within the dataset - however is an objective decision and may need to be more critically assessed. With this decision upheld, analysis of these conditions would focus our attention on the models' ability to discern fail cases by an "inappropriate" final orientation of the manipulated object.
+
+The suger dataset also features side-approach interactions with the gripper always in frame - where the action is successful except for an object release which causes toppling over. These cases are labelled as failures. This is in line with maintaining the consistency discussed for the ambiguous Crisp and Cola top-down interaction cases. However, the argument for this is not as clear-cut. The reasoning for this is that the model would preferentially be able to detect fail cases in time frames which exist outside the interaction times - such as fails whose consequences only reveal themselves over time. However, if we consider a focus on the model's ability to perceive success and failure only throughout interaction, these fail cases might be considered as being outside the scope of relevancy for the model's attention. As such, this decision should be discussed and considered in analysis.
+
+Another fault with generalising upright drops as successes may lead to a "successful model" simply relying on checking for a consistent orientation of the manipulated object throughout the dataset, as opposed to focusing on the semantics of the presented physical interaction.
+
+Note that for the suger dataset, there are additional datasets edge cases which may be of special use/interest, including:
+1. cases of the release/final interaction with the object resulting in the object toppling back into contact the gripper
+2. videos which seem to be corrupt and only provide a single frame of the testing environment without any object or robot present - providing a background or clean slate. Note that for these, the depth camera and rgb images still show valid data. These cases have been omitted. 
+
