@@ -174,13 +174,13 @@ These results suggest that OpenVLA representation semantically comprehends the v
     \label{fig:temporal}
 \end{figure}
 
-Tracking cluster assignments across manipulation sequences reveals temporal structure. During successful executions, clusters corresponding to the target object remain stable throughout the grasp-lift-transport sequence. In contrast, failed attempts exhibit higher volatility, with frequent cluster reassignments suggesting representational uncertainty. When we plot the distribution of cluster IDs over time, distinct manipulation phases emerge as transitions in the dominant cluster: approach is characterized by increasing co-occurrence of gripper and object clusters, contact triggers a sharp shift as both regions merge into a unified grasp cluster, and release corresponds to their separation. These temporal signatures could serve as features for downstream tasks like phase detection or progress monitoring.
+Tracking cluster assignments across manipulation sequences reveals temporal structure. During successful executions, clusters corresponding to the target object remain stable throughout the grasp-lift-transport sequence. In contrast, failed attempts exhibit higher volatility, with frequent cluster reassignments suggesting representational uncertainty. When we plot the distribution of cluster IDs over time, distinct manipulation phases emerge as transitions in the dominant cluster: approach is characterized by increasing co-occurrence of gripper and object clusters, contact triggers a sharp shift as both regions merge into a unified grasp cluster, and release corresponds to their separation. These temporal signatures could serve as features for downstream tasks like phase detection or progress monitoring. See Appendix~\ref{app:temporal_alignment} for our temporal eigenvector alignment implementation.
 
 \subsection{Input Sensitivity Analysis}
 
 To quantify the relative importance of vision versus language, we conduct a controlled perturbation study. We systematically modify images (changing lighting conditions, object appearance, or camera viewpoint) and text (swapping action verbs like ``pick'' $\leftrightarrow$ ``grasp,'' or nouns like ``can'' $\leftrightarrow$ ``container''), then measure the induced change in VLA feature representations via cosine distance. Denoting image-induced shifts as $\Delta_\text{img}$, verb swaps as $\Delta_\text{verb}$, and noun swaps as $\Delta_\text{noun}$, we find $\Delta_\text{img} > 10 \cdot \Delta_\text{verb} > \Delta_\text{noun}$. This dramatic imbalance indicates that VLA representations are overwhelmingly dominated by visual information, with language playing a relatively minor modulatory role.
 
-We further probe semantic organization via template-based retrieval. For each semantic category (e.g., the verb ``push'' or the noun ``room''), we collect 30 images from COCO containing that category, average their VLA features to form a template, and compute mean Average Precision (mAP) for retrieving other instances. Scene-level nouns achieve relatively high mAP: ``room'' (0.36), ``street'' (0.29), ``field'' (0.27). Object nouns and action verbs score substantially lower: ``picture'' (0.09), ``shirt'' (0.07), and among verbs, even high-frequency actions like ``fill'' (0.07) and ``show'' (0.05) cluster poorly. This suggests VLAs form coherent semantic clusters primarily for static scenes and objects, while action semantics remain weakly differentiated.
+We further probe semantic organization via template-based retrieval. For each semantic category (e.g., the verb ``push'' or the noun ``room''), we collect 30 images from COCO containing that category, average their VLA features to form a template, and compute mean Average Precision (mAP) for retrieving other instances (see Appendix~\ref{app:sensitivity_analysis} for perturbation methodology and Appendix~\ref{app:semantic_retrieval} for retrieval metrics). Scene-level nouns achieve relatively high mAP: ``room'' (0.36), ``street'' (0.29), ``field'' (0.27). Object nouns and action verbs score substantially lower: ``picture'' (0.09), ``shirt'' (0.07), and among verbs, even high-frequency actions like ``fill'' (0.07) and ``show'' (0.05) cluster poorly. This suggests VLAs form coherent semantic clusters primarily for static scenes and objects, while action semantics remain weakly differentiated.
 
 \subsection{Spatial Intelligence Evaluation}
 \begin{figure}[h!]
@@ -194,7 +194,7 @@ We further probe semantic organization via template-based retrieval. For each se
     \label{fig:spatial}
 \end{figure}
 
-A critical question is whether VLAs learn geometric understanding or merely memorize appearance-pose associations. To test this, we extract VLA features from NeRF datasets where ground-truth camera poses are known, and train a 3-layer MLP to regress 6-DOF poses (position and orientation) from these features. On the training set, the probe achieves nearly perfect performance with loss 0.003, demonstrating that pose information is indeed encoded. However, on held-out test views, the loss remains at 0.998—complete failure to generalize. We also perform multi-dimensional scaling (MDS) on pairwise feature distances and compare to ground-truth pose distances. For nearby viewpoints in 3D space, we find no corresponding proximity in feature space, confirming that VLAs do not learn geometric relationships between views.
+A critical question is whether VLAs learn geometric understanding or merely memorize appearance-pose associations. To test this, we extract VLA features from NeRF datasets where ground-truth camera poses are known, and train a 3-layer MLP to regress 6-DOF poses (position and orientation) from these features (see Appendix~\ref{app:pose_regression} for architecture and training details). On the training set, the probe achieves nearly perfect performance with loss 0.003, demonstrating that pose information is indeed encoded. However, on held-out test views, the loss remains at 0.998—complete failure to generalize. We also perform multi-dimensional scaling (MDS) on pairwise feature distances and compare to ground-truth pose distances (Appendix~\ref{app:affinity_analysis}). For nearby viewpoints in 3D space, we find no corresponding proximity in feature space, confirming that VLAs do not learn geometric relationships between views.
 
 This finding has significant implications. VLAs can memorize which visual appearances correspond to which spatial configurations in their training data, but they lack the geometric inductive biases needed to reason about unseen viewpoints, occlusions, or multi-step assembly tasks requiring spatial planning. Future architectures may benefit from incorporating explicit 3D representations or contrastive losses that enforce view-invariant embeddings.
 
@@ -246,13 +246,15 @@ Additional future work may also look to tracing failures across architectural su
 
 Nyström Normalized Cuts provides a practical and scalable tool for debugging robot foundation models. By visualizing feature geometry across layers and modalities, we can uncover semantic structure, diagnose failure modes, and identify architectural weaknesses that standard metrics obscure. Our analysis of OpenVLA reveals that while these models excel at object-centric perceptual reasoning, they struggle with language grounding and spatial generalization. NCut may be applied in various additional ways to those explored, and as VLAs scale toward real-world deployment, interpretability methods like NCut may prove crucial for ensuring reliability, safety, and targeted improvement.
 
-\bibliographystyle{plain}
+\bibliographystyle{unsrt}
 \bibliography{sample}
 
 \onecolumn
 \appendix
 
-\section{Appendix}
+\section{Appendix: Implementation Details}
+
+This appendix provides implementation details for the key analyses presented in the paper. All code is available in our repository.
 
 \subsection{NCut Implementation}
 \label{app:ncut_implementation}
@@ -291,6 +293,48 @@ def differentiable_kway_ncut(features_flat: torch.Tensor, n_segment: int):
     return eigvec, kway_eigvec
 \end{lstlisting}
 
+For batch NCut across multiple frames (co-segmentation), we concatenate features and process jointly:
+
+\begin{lstlisting}[caption={Batched NCut for co-segmentation across frames.}]
+def compute_batch_ncut(features_list, n_eig=3, device='cuda'):
+    """Compute batched NCut on a list of features for co-segmentation.
+    
+    Args:
+        features_list: list of tensors, each (N, D)
+        n_eig: number of eigenvectors
+    Returns:
+        colors_list: list of RGB colors, each (N, 3)
+    """
+    all_features = []
+    frame_lengths = []
+    
+    for feat in features_list:
+        if feat.dim() == 3:
+            feat = feat.squeeze(0)
+        all_features.append(feat.float())
+        frame_lengths.append(len(feat))
+    
+    # Concatenate along sequence dimension
+    batched_features = torch.cat(all_features, dim=0).to(device)
+    
+    # Compute NCut
+    ncut = Ncut(n_eig=n_eig, device=device)
+    eigvecs = ncut.fit_transform(batched_features)
+    
+    # Normalize to 0-1 for RGB visualization
+    eigvecs_norm = (eigvecs - eigvecs.min(0, keepdim=True)[0]) / \
+                   (eigvecs.max(0, keepdim=True)[0] - eigvecs.min(0, keepdim=True)[0] + 1e-8)
+    
+    # Split colors back to individual frames
+    colors_list = []
+    start_idx = 0
+    for length in frame_lengths:
+        colors_list.append(eigvecs_norm[start_idx:start_idx + length].cpu())
+        start_idx += length
+    
+    return colors_list
+\end{lstlisting}
+
 \subsection{Feature Extraction from OpenVLA}
 \label{app:feature_extraction}
 
@@ -318,47 +362,294 @@ def openvla_get_vision_tokens(model, inputs, dtype, device) -> torch.Tensor:
     return tokens
 \end{lstlisting}
 
-For language features, we retrieve hidden states from the language model backbone:
+For language features, we retrieve hidden states from the language model backbone with pooling options:
 
-\begin{lstlisting}[caption={Extracting language hidden states from OpenVLA.}]
-def openvla_get_language_layers(model, inputs) -> List[torch.Tensor]:
-    """Retrieve language hidden states layers for OpenVLA.
+\begin{lstlisting}[caption={Extracting and pooling language hidden states from OpenVLA.}]
+def pool_hidden_states(hidden: torch.Tensor, strategy: str) -> torch.Tensor:
+    """Pool hidden states for downstream analysis."""
+    if hidden.ndim != 2:
+        raise ValueError("Expected hidden state tensor of shape (seq_len, hidden_dim)")
+    if strategy == "mean":
+        return hidden.mean(dim=0)
+    if strategy == "mean_std":
+        mean = hidden.mean(dim=0)
+        std = hidden.std(dim=0, unbiased=False)
+        return torch.cat([mean, std], dim=0)
+    raise ValueError(f"Unsupported pooling strategy: {strategy}")
+
+def collect_pooled_features(model, processor, image_paths, prompt, 
+                            device, autocast_dtype, pooling) -> torch.Tensor:
+    """Collect pooled features from OpenVLA for a batch of images."""
+    pooled_features = []
+    autocast_ctx = torch.autocast(device_type="cuda", dtype=autocast_dtype) \
+                   if device.type == "cuda" else nullcontext()
     
-    Returns a tuple/list where each entry is [B, T, H] tensor.
-    """
     with torch.no_grad():
-        if inputs.get("pixel_values") is not None:
-            target_dtype = next(model.parameters()).dtype
-            inputs["pixel_values"] = inputs["pixel_values"].to(
-                model.device, dtype=target_dtype)
+        for image_path in image_paths:
+            with Image.open(image_path) as img:
+                image = img.convert("RGB")
+            inputs = processor(text=[prompt], images=image, return_tensors="pt")
+            inputs = {k: v.to(device) if isinstance(v, torch.Tensor) else v 
+                      for k, v in inputs.items()}
+            with autocast_ctx:
+                outputs = model(**inputs, output_hidden_states=True, return_dict=True)
+            last_hidden = outputs.hidden_states[-1][0].to(torch.float32).cpu()
+            pooled_features.append(pool_hidden_states(last_hidden, pooling))
+    return torch.stack(pooled_features)
+\end{lstlisting}
+
+We also use forward hooks to capture intermediate vision encoder features:
+
+\begin{lstlisting}[caption={Vision feature hook for capturing encoder outputs.}]
+class VisionFeatureHook:
+    """Hook to capture vision encoder features at any layer."""
+    def __init__(self):
+        self.features = None
         
-        fwd = model(
-            input_ids=inputs.get("input_ids"),
-            pixel_values=inputs.get("pixel_values"),
-            attention_mask=inputs.get("attention_mask"),
-            output_hidden_states=True,
-            return_dict=True,
-        )
+    def __call__(self, module, input, output):
+        if isinstance(output, tuple):
+            self.features = output[0].detach()
+        else:
+            self.features = output.detach()
+
+# Usage: Register hook on vision backbone's last block
+hook = VisionFeatureHook()
+if hasattr(model, 'vision_backbone'):
+    vision = model.vision_backbone
+    if hasattr(vision, 'featurizer') and hasattr(vision.featurizer, 'blocks'):
+        last_block = vision.featurizer.blocks[-1]
+        handle = last_block.register_forward_hook(hook)
+\end{lstlisting}
+
+\subsection{Temporal Dynamics and Eigenvector Alignment}
+\label{app:temporal_alignment}
+
+When analyzing manipulation sequences, eigenvector sign ambiguity can cause color flipping between frames. We apply temporal alignment to ensure consistent cluster colors:
+
+\begin{lstlisting}[caption={Temporal eigenvector alignment to prevent color flipping.}]
+def align_eigenvectors(curr_eig, ref_eig):
+    """Align current eigenvectors to reference to ensure temporal consistency."""
+    if ref_eig is None:
+        return curr_eig
         
-        for key in ["hidden_states", "decoder_hidden_states"]:
-            if hasattr(fwd, key) and getattr(fwd, key) is not None:
-                return getattr(fwd, key)
-                
-    raise RuntimeError("Could not retrieve language hidden states.")
+    K = curr_eig.shape[1]
+    aligned_eig = curr_eig.clone()
+    
+    for k in range(K):
+        dot_prod = torch.dot(curr_eig[:, k], ref_eig[:, k])
+        if dot_prod < 0:
+            aligned_eig[:, k] = -aligned_eig[:, k]
+            
+    return aligned_eig
+
+def compute_aligned_ncut(features_list, n_eig=3, device='cuda'):
+    """Compute NCut with temporal alignment via correlation-based sign correction."""
+    # First do batch NCut
+    colors_list = compute_batch_ncut(features_list, n_eig, device)
+    if colors_list is None:
+        return None
+    
+    # Apply temporal alignment
+    aligned_colors = []
+    prev_colors = None
+    
+    for colors in colors_list:
+        if prev_colors is not None:
+            aligned = colors.clone()
+            for c in range(colors.shape[1]):
+                curr_channel = colors[:, c]
+                prev_channel = prev_colors[:, c]
+                # Check correlation and flip if negative
+                corr = torch.corrcoef(torch.stack([curr_channel, prev_channel]))[0, 1]
+                if corr < 0:
+                    aligned[:, c] = 1.0 - aligned[:, c]
+            aligned_colors.append(aligned)
+            prev_colors = aligned
+        else:
+            aligned_colors.append(colors)
+            prev_colors = colors
+    
+    return aligned_colors
+\end{lstlisting}
+
+\subsection{Input Sensitivity Analysis}
+\label{app:sensitivity_analysis}
+
+To quantify vision-vs-language sensitivity (Section 4.4), we define systematic prompt perturbations and measure feature-space shifts:
+
+\begin{lstlisting}[caption={Prompt perturbation variants for sensitivity analysis.}]
+BASE_PROMPT = "In: What action should the robot take to push the trees away from the wall?\nOut:"
+
+PROMPT_VARIANTS = {
+    "base": BASE_PROMPT,
+    "verb_swap": BASE_PROMPT.replace("push the trees away from the wall", 
+                                      "pull the trees towards the robot"),
+    "noun_swap": BASE_PROMPT.replace("trees", "boxes"),
+    "neutral": "In: Describe the scene in detail.\nOut:",
+    "short": "In: Action?\nOut:",
+}
+
+def summarize_differences(base: np.ndarray, variant: np.ndarray) -> Dict[str, float]:
+    """Compute feature-space distance metrics between baseline and variant."""
+    diff = variant - base
+    base_norm = np.linalg.norm(base, axis=1) + 1e-6
+    variant_norm = np.linalg.norm(variant, axis=1) + 1e-6
+    l2 = np.linalg.norm(diff, axis=1)
+    rel = l2 / base_norm
+    cosine = np.sum(base * variant, axis=1) / (base_norm * variant_norm)
+    return {
+        "mean_l2": float(np.mean(l2)),
+        "median_l2": float(np.median(l2)),
+        "p90_l2": float(np.percentile(l2, 90)),
+        "mean_relative_l2": float(np.mean(rel)),
+        "mean_cosine": float(np.mean(cosine)),
+    }
+
+def cross_image_baseline(features: np.ndarray, num_pairs: int = 1000) -> Dict[str, float]:
+    """Compute baseline distances between random image pairs for reference."""
+    rng = np.random.default_rng(seed=0)
+    n = features.shape[0]
+    idx_a = rng.integers(0, n, size=num_pairs)
+    idx_b = rng.integers(0, n, size=num_pairs)
+    diff = features[idx_a] - features[idx_b]
+    distances = np.linalg.norm(diff, axis=1)
+    return {
+        "mean_cross_image_l2": float(np.mean(distances)),
+        "median_cross_image_l2": float(np.median(distances)),
+    }
+\end{lstlisting}
+
+\subsection{Semantic Retrieval Metrics}
+\label{app:semantic_retrieval}
+
+For the template-based semantic retrieval analysis (Section 4.4), we compute Average Precision and Precision/Recall@K:
+
+\begin{lstlisting}[caption={Semantic retrieval metrics for verb/noun alignment analysis.}]
+def average_precision(y_true: np.ndarray, scores: np.ndarray) -> float:
+    """Compute average precision for retrieval evaluation."""
+    positives = y_true.sum()
+    if positives == 0:
+        return float("nan")
+    order = np.argsort(-scores)
+    sorted_true = y_true[order]
+    cumulative = np.cumsum(sorted_true)
+    precision = cumulative / (np.arange(len(sorted_true)) + 1)
+    ap = (precision * sorted_true).sum() / positives
+    return float(ap)
+
+def precision_at_k(y_true: np.ndarray, scores: np.ndarray, k: int) -> float:
+    order = np.argsort(-scores)[:k]
+    return float(y_true[order].sum() / max(k, 1))
+
+def recall_at_k(y_true: np.ndarray, scores: np.ndarray, k: int) -> float:
+    positives = y_true.sum()
+    if positives == 0:
+        return float("nan")
+    order = np.argsort(-scores)[:k]
+    return float(y_true[order].sum() / positives)
+
+def evaluate_word_retrieval(word, normalized_features, per_image_word_sets):
+    """Evaluate prototype-based retrieval for a semantic category."""
+    labels = np.array([1 if word in word_set else 0 
+                       for word_set in per_image_word_sets], dtype=np.float32)
+    if labels.sum() == 0:
+        return None
+    
+    # Build prototype from positive examples
+    mask = labels.astype(bool)
+    prototype = normalized_features[mask].mean(axis=0)
+    prototype /= np.linalg.norm(prototype).clip(min=1e-6)
+    
+    # Compute similarity scores
+    scores = normalized_features @ prototype
+    
+    return {
+        "word": word,
+        "positives": int(labels.sum()),
+        "average_precision": average_precision(labels, scores),
+        "precision_at_10": precision_at_k(labels, scores, k=10),
+        "recall_at_10": recall_at_k(labels, scores, k=10),
+    }
+\end{lstlisting}
+
+\subsection{Spatial Intelligence: Pose Regression}
+\label{app:pose_regression}
+
+For the spatial intelligence evaluation (Section 4.5), we train a lightweight MLP to regress camera poses from VLA features:
+
+\begin{lstlisting}[caption={Pose regression MLP architecture.}]
+class PoseRegressor(nn.Module):
+    """MLP for regressing 6-DOF camera poses from VLA features."""
+    def __init__(self, input_dim: int, target_dim: int, hidden_dim: int,
+                 num_hidden_layers: int, dropout: float):
+        super().__init__()
+        layers = [nn.LayerNorm(input_dim)]
+        in_dim = input_dim
+        for _ in range(max(num_hidden_layers, 0)):
+            layers.extend([
+                nn.Linear(in_dim, hidden_dim),
+                nn.GELU(),
+            ])
+            if dropout > 0:
+                layers.append(nn.Dropout(dropout))
+            in_dim = hidden_dim
+        layers.append(nn.Linear(in_dim, target_dim))
+        self.net = nn.Sequential(*layers)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.net(x)
+
+def flatten_pose_matrices(pose_matrices: torch.Tensor) -> torch.Tensor:
+    """Flatten (N, 3, 4) pose matrices to (N, 12) for regression."""
+    if pose_matrices.ndim != 3 or pose_matrices.shape[1:] != (3, 4):
+        raise ValueError("Pose matrices must have shape (N, 3, 4)")
+    return pose_matrices.reshape(pose_matrices.shape[0], -1)
+\end{lstlisting}
+
+\subsection{Feature-Pose Affinity Analysis}
+\label{app:affinity_analysis}
+
+To compare feature similarity structure with ground-truth pose distances:
+
+\begin{lstlisting}[caption={RBF affinity and MDS for feature-pose comparison.}]
+def rbf_affinity_from_features(features: torch.Tensor, gamma: float = 1.0) -> torch.Tensor:
+    """Compute RBF (Gaussian) affinity matrix from features."""
+    if features.ndim != 2:
+        raise ValueError("`features` must be a 2D tensor [n_samples, dim].")
+    d = torch.cdist(features, features, p=2)
+    squared = torch.pow(d, 2)
+    sigma = 2 * gamma * features.var(dim=0, unbiased=False).sum()
+    sigma = torch.clamp(sigma, min=1e-6)
+    return torch.exp(-squared / sigma)
+
+def classical_mds(distances: torch.Tensor, output_dim: int = 2) -> np.ndarray:
+    """Multi-dimensional scaling for embedding visualization."""
+    dist_np = distances.cpu().numpy()
+    sq_dist = dist_np**2
+    n = sq_dist.shape[0]
+    centering = np.eye(n) - np.ones((n, n)) / n
+    gram = -0.5 * centering @ sq_dist @ centering
+    eigvals, eigvecs = np.linalg.eigh(gram)
+    idx = np.argsort(eigvals)[::-1]
+    eigvals = eigvals[idx]
+    eigvecs = eigvecs[:, idx]
+    positive = eigvals > 0
+    eigvals = eigvals[positive][:output_dim]
+    eigvecs = eigvecs[:, positive][:, :output_dim]
+    coords = eigvecs * np.sqrt(np.maximum(eigvals, 0))
+    return coords
 \end{lstlisting}
 
 \subsection{Gradient Attribution for Clusters}
 \label{app:gradient_attribution}
 
-To compute which feature channels contribute most to a given NCut cluster (as discussed in Section 4.6), we backpropagate through the k-way eigenvector assignments:
+To compute which feature channels contribute most to a given NCut cluster (Section 4.6), we backpropagate through the k-way eigenvector assignments:
 
 \begin{lstlisting}[caption={Computing channel gradients for cluster attribution.}]
-def channel_gradient_from_cluster(
-    features_flat: torch.Tensor, 
-    cluster_mask_flat: torch.Tensor, 
-    kway_eigvec: torch.Tensor, 
-    cluster_idx: int
-) -> torch.Tensor:
+def channel_gradient_from_cluster(features_flat: torch.Tensor, 
+                                   cluster_mask_flat: torch.Tensor, 
+                                   kway_eigvec: torch.Tensor, 
+                                   cluster_idx: int) -> torch.Tensor:
     """Compute average channel gradient for a specific cluster.
 
     features_flat: [N, C] with requires_grad=True (CPU float32)
@@ -374,6 +665,69 @@ def channel_gradient_from_cluster(
     loss.backward(retain_graph=True)
     grad = features_flat.grad[cluster_mask_flat].mean(0)
     return grad.detach()
+\end{lstlisting}
+
+\subsection{Entropy Metrics for Layer Analysis}
+\label{app:entropy_metrics}
+
+To quantify information flow between layers, we compute entropy-based metrics on NCut cluster assignments:
+
+\begin{lstlisting}[caption={Entropy and mutual information for cross-layer analysis.}]
+def compute_entropy_metrics(features1, features2, n_eig=20, mode='discrete'):
+    """Compute conditional entropy and mutual information between two layers.
+    
+    All entropy values are measured in bits (using log2).
+    """
+    from ncut_pytorch import Ncut, kway_ncut
+    from ncut_pytorch.utils.math import rbf_affinity
+    from scipy.optimize import linear_sum_assignment
+    
+    # Process features through NCut pipeline
+    h1, w1, d1 = features1.shape
+    flattened1 = features1.reshape(h1 * w1, d1)
+    aligned_features1 = rbf_affinity(flattened1)
+    eigvecs1 = Ncut(n_eig=n_eig).fit_transform(aligned_features1)
+    kway_eigvecs1 = kway_ncut(eigvecs1)
+    
+    h2, w2, d2 = features2.shape
+    flattened2 = features2.reshape(h2 * w2, d2)
+    aligned_features2 = rbf_affinity(flattened2)
+    eigvecs2 = Ncut(n_eig=n_eig).fit_transform(aligned_features2)
+    kway_eigvecs2 = kway_ncut(eigvecs2)
+    
+    # Convert to numpy and compute joint distribution
+    kway1 = kway_eigvecs1.numpy()
+    kway2 = kway_eigvecs2.numpy()
+    N, K = kway1.shape
+    eps = 1e-10
+    
+    def H(p):  # Entropy in bits
+        p = np.clip(p, eps, 1.0)
+        return -np.sum(p * np.log2(p))
+    
+    labels1 = np.argmax(kway1, axis=1)
+    labels2 = np.argmax(kway2, axis=1)
+    
+    # Build confusion matrix -> joint distribution
+    confusion = np.zeros((K, K), dtype=np.float64)
+    for a, b in zip(labels1, labels2):
+        confusion[a, b] += 1.0
+    P_joint = confusion / float(N)
+    P1 = P_joint.sum(axis=1)
+    P2 = P_joint.sum(axis=0)
+    
+    H1 = H(P1)
+    H2 = H(P2)
+    H_joint = H(P_joint.reshape(-1))
+    MI = H1 + H2 - H_joint
+    
+    return {
+        'entropy_layer1': H1,
+        'entropy_layer2': H2,
+        'conditional_entropy_1_given_2': H_joint - H2,
+        'conditional_entropy_2_given_1': H_joint - H1,
+        'mutual_information': MI,
+    }
 \end{lstlisting}
 
 This gradient computation enables us to identify which feature dimensions are most associated with each semantic cluster, revealing that lower-frequency eigenvectors (capturing coarse semantic partitions) show stronger correlations with action predictions than higher-frequency components capturing fine texture details.
