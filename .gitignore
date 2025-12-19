@@ -37,3 +37,8 @@ lightning_logs/**/checkpoints/*.ckpt
 
 # Misc
 *.pdf.pdf
+
+# LaTeX build artifacts (ignore all main.* except main.tex and main.pdf)
+main.*
+!main.tex
+!main.pdf
