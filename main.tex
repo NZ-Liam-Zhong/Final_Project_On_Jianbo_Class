@@ -115,7 +115,7 @@ Unfortunately, in preliminary exploration, we found that most open-source datase
 
 We decided to select a dataset which met most of these criteria, short of detailed labelling, and instead manually label it \cite{wang2019multimodal}. The selected dataset is informally curated by a research team for their specific explorations, and thus contains irregularities and non-uniformities in data collection (with some instances of media errors). However, its diversity makes it valuable for studying edge cases and failure modes that are often filtered from cleaner benchmarks. Given manual labelling, extraction of erroneus datapoints, and descriptions of each of the attempted tasks - this dataset enabled our analysis of a VLA's comprehension of text-image semantics.
 
-For other explorations, we also utilise other datasets or simulations where we seek specific characteristics.
+For other explorations, we also utilize other datasets or simulations where we seek specific characteristics.
 
 \subsection{Text-Image Semantics}
 
@@ -130,7 +130,7 @@ We begin by performing batch NCut on various frames of a simple successful case 
 
 Firstly, the model shows the ability differentiate between foreground and background, segmenting the robot arm and the red can from the table. Furthermore, the robot arm and the red can both display a similar olive-green hue throughout every frame of the interaction. They retain a green hue throughout frames of interaction, including instances where most of the arm and can are out of frame. These indicate that the vision encoder has learned object-centric rather than position-centric representation. Beyond that, the model associates the objects with one another - an indicator of semantic understaning that they are interacting. Minial hue differences are  observed between cases of the robot arm holding the can with an open or closed grip. This may be indicative of semantic distinction between various levels or stages of interaction.
 
-Interestingly, we observe rapid cluster/color reassignments at points of transition between different stages of robot interactions. Senstivity to these is further indicative of semantic understanding of commonplace steps in a task such as Pick and Place.
+Interestingly, we observe rapid cluster/color reassignments at points of transition between different stages of robot interactions. Specifically, notable color shifts occur when the gripper transitions from approach to contact with the object, when the grip closes around the target, and when the lifting motion begins. These transition points correspond to meaningful changes in the physical state of the manipulation task. The model's sensitivity to these phase boundaries suggests that the VLA has implicitly learned to recognize the discrete stages that comprise structured manipulation tasks like Pick and Place, rather than treating the action sequence as a continuous undifferentiated trajectory. This phase-aware representation could be particularly valuable for task monitoring and progress estimation in robotic systems.
 
 \begin{figure*}[t]
   \centering
